@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CondaSrc — Conda 镜像源切换器</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- 顶部状态栏 -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 2.1l4 4-4 4" />
+            <path d="M3 12.2v-2a4 4 0 0 1 4-4h12.8" />
+            <path d="M7 21.9l-4-4 4-4" />
+            <path d="M21 11.8v2a4 4 0 0 1-4 4H4.2" />
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>CondaSrc</h1>
+          <div class="active-status" id="active-status-pill">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="active-mirror-label">正在读取配置...</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <label class="toggle-control hidden" id="sync-root-wrap" title="同时更新环境根目录 .condarc（防止 Conda 合并多份 default_channels 导致旧源残留）">
+          <input type="checkbox" id="sync-root-toggle" checked />
+          <span class="toggle-track" aria-hidden="true"></span>
+          <span class="toggle-label">同步根目录</span>
+        </label>
+
+        <label class="toggle-control" title="切换时同步规范化各虚拟环境 conda-meta 中的硬编码旧源 URL，使其自动跟随当前镜像">
+          <input type="checkbox" id="sync-env-meta-toggle" checked />
+          <span class="toggle-track" aria-hidden="true"></span>
+          <span class="toggle-label">同步环境索引</span>
+        </label>
+
+        <label class="toggle-control" title="切换镜像源后自动执行 conda clean -i -y">
+          <input type="checkbox" id="auto-clean-toggle" />
+          <span class="toggle-track" aria-hidden="true"></span>
+          <span class="toggle-label">切换后清缓存</span>
+        </label>
+
+        <button class="btn btn-secondary" id="btn-speedtest" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+          </svg>
+          <span>镜像测速</span>
+        </button>
+
+        <button class="btn btn-secondary" id="btn-clean-cache" type="button">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M3 6h18" />
+            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+          </svg>
+          <span>清理索引</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 导航标签 -->
+    <nav class="tabbar" role="tablist" aria-label="功能导航">
+      <button class="tab-btn active" role="tab" aria-selected="true" data-tab="mirrors" type="button">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="7" rx="2" />
+          <rect x="2" y="14" width="20" height="7" rx="2" />
+          <line x1="6" y1="6.5" x2="6.01" y2="6.5" />
+          <line x1="6" y1="17.5" x2="6.01" y2="17.5" />
+        </svg>
+        <span>镜像源切换</span>
+      </button>
+
+      <button class="tab-btn" role="tab" aria-selected="false" data-tab="preview" type="button">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <line x1="16" y1="13" x2="8" y2="13" />
+          <line x1="16" y1="17" x2="8" y2="17" />
+        </svg>
+        <span>.condarc 预览</span>
+      </button>
+
+      <button class="tab-btn" role="tab" aria-selected="false" data-tab="backups" type="button">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+          <path d="M3 3v5h5" />
+          <path d="M12 7v5l4 2" />
+        </svg>
+        <span>备份与还原</span>
+        <span class="tab-badge" id="backup-count-badge">0</span>
+      </button>
+    </nav>
+
+    <!-- 主内容区域 -->
+    <main class="main-content">
+      <!-- 视图 1：镜像源切换 -->
+      <section class="tab-panel active" id="panel-mirrors" role="tabpanel">
+        <div class="section-header">
+          <div>
+            <h2>可用镜像源</h2>
+            <p class="section-desc">精准更新 <code>default_channels</code> 与 <code>custom_channels</code>，完整保留您的其他配置项。</p>
+          </div>
+          <button class="btn btn-primary" id="btn-add-mirror" type="button">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            <span>新增自定义源</span>
+          </button>
+        </div>
+
+        <div class="warn-banner hidden" id="mismatch-banner">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <div>
+            <strong>检测到多份 .condarc 源不一致：</strong>
+            <span id="mismatch-detail"></span>
+            <span>由于 Conda 会合并多份文件中的 <code>default_channels</code>，建议保持右上角「同步根目录」开启并重新点击目标镜像源，一键统一两处配置。</span>
+          </div>
+        </div>
+
+        <div class="mirror-grid" id="mirror-grid"></div>
+      </section>
+
+      <!-- 视图 2：.condarc 实时预览 -->
+      <section class="tab-panel" id="panel-preview" role="tabpanel">
+        <div class="section-header">
+          <div>
+            <h2>配置文件与生效验证</h2>
+            <p class="section-desc">查看用户级与根目录 <code>.condarc</code> 内容，并可直接调用 <code>conda config --show</code> 验证合并后的最终结果。</p>
+          </div>
+          <div class="inline-actions">
+            <button class="btn btn-secondary" id="btn-verify-effective" type="button">验证实际生效配置</button>
+            <button class="btn btn-secondary" id="btn-refresh-condarc" type="button">刷新读取</button>
+            <button class="btn btn-primary" id="btn-snapshot-from-preview" type="button">保存当前快照</button>
+          </div>
+        </div>
+
+        <div class="preview-stack">
+          <div class="code-card">
+            <div class="code-card-header">
+              <span class="mono" id="condarc-path-display">-</span>
+              <span class="muted-text" id="conda-exe-status">Conda 路径检测中...</span>
+            </div>
+            <pre class="code-view mono" id="condarc-content-view"></pre>
+          </div>
+
+          <div class="code-card hidden" id="root-condarc-card">
+            <div class="code-card-header">
+              <span class="mono" id="root-condarc-path">-</span>
+              <span class="badge" id="root-condarc-badge">环境根目录 .condarc</span>
+            </div>
+            <pre class="code-view mono" id="root-condarc-content-view"></pre>
+          </div>
+
+          <div class="code-card hidden" id="effective-config-card">
+            <div class="code-card-header">
+              <span class="mono">conda config --show channels default_channels custom_channels</span>
+              <span class="badge badge-active">实际合并生效结果</span>
+            </div>
+            <pre class="code-view mono" id="effective-config-view"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- 视图 3：备份与还原 -->
+      <section class="tab-panel" id="panel-backups" role="tabpanel">
+        <div class="section-header">
+          <div>
+            <h2>配置备份与还原</h2>
+            <p class="section-desc">首次修改 <code>.condarc</code> 前会自动保存一份初始备份，随时可一键回滚。</p>
+          </div>
+          <button class="btn btn-primary" id="btn-create-backup" type="button">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+            <span>立即创建快照</span>
+          </button>
+        </div>
+
+        <div class="backup-list" id="backup-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 新增/编辑自定义镜像源弹窗 -->
+  <div class="modal-backdrop hidden" id="mirror-modal" role="dialog" aria-modal="true" aria-labelledby="mirror-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="mirror-modal-title">新增自定义镜像源</h3>
+        <button class="icon-btn" id="btn-close-mirror-modal" type="button" aria-label="关闭弹窗">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <form id="mirror-form" class="modal-body">
+        <input type="hidden" id="field-mirror-id" />
+
+        <div class="form-group">
+          <label for="field-mirror-name">镜像源名称 <span class="req">*</span></label>
+          <input type="text" id="field-mirror-name" required placeholder="例如：南京大学镜像站 (NJU)" />
+        </div>
+
+        <div class="form-group">
+          <label for="field-mirror-desc">简介说明</label>
+          <input type="text" id="field-mirror-desc" placeholder="例如：校内高速镜像 / 实验室私有源" />
+        </div>
+
+        <div class="form-group">
+          <label for="field-default-channels">default_channels（每行一个 URL）</label>
+          <textarea id="field-default-channels" rows="3" class="mono" placeholder="https://mirrors.nju.edu.cn/anaconda/pkgs/main&#10;https://mirrors.nju.edu.cn/anaconda/pkgs/r&#10;https://mirrors.nju.edu.cn/anaconda/pkgs/msys2"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="field-custom-channels">custom_channels（每行一条，格式为 <code>频道名=URL</code>）</label>
+          <textarea id="field-custom-channels" rows="3" class="mono" placeholder="conda-forge=https://mirrors.nju.edu.cn/anaconda/cloud&#10;pytorch=https://mirrors.nju.edu.cn/anaconda/cloud&#10;bioconda=https://mirrors.nju.edu.cn/anaconda/cloud"></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="field-probe-url">测速探测 URL（可选，留空自动根据通道推导）</label>
+          <input type="url" id="field-probe-url" class="mono" placeholder="https://mirrors.nju.edu.cn/anaconda/cloud/conda-forge/noarch/repodata.json" />
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-mirror-modal" type="button">取消</button>
+          <button class="btn btn-primary" type="submit">保存镜像源</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 备份预览弹窗 -->
+  <div class="modal-backdrop hidden" id="backup-preview-modal" role="dialog" aria-modal="true" aria-labelledby="backup-preview-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="backup-preview-title">备份内容预览</h3>
+        <button class="icon-btn" id="btn-close-preview-modal" type="button" aria-label="关闭预览">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <pre class="code-view mono preview-modal-code" id="backup-preview-code"></pre>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-ok-preview-modal" type="button">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast 提示容器 -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

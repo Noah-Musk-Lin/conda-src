@@ -1,0 +1,16 @@
+# Rust / Cargo build outputs
+/target/
+/t/
+**/*.rs.bk
+*.pdb
+*.exe
+
+# Tauri auto-generated files
+/gen/
+
+# OS & Editor temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+.vscode/
+.idea/
